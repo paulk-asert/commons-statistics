@@ -26,7 +26,7 @@ import org.apache.commons.statistics.distribution.TDistribution;
  *
  * @since 1.4
  */
-abstract class BaseRegressionResult implements RegressionResult {
+class BaseRegressionResult implements RegressionResult {
     /** Number of observations. */
     private final long n;
     /** Flag indicating the model was fitted with an intercept. */
@@ -66,6 +66,21 @@ abstract class BaseRegressionResult implements RegressionResult {
         adjustedRSquared = intercept ?
             1 - (1 - rSquared) * (n - 1.0) / df :
             1 - (1 - rSquared) * ((double) n / df);
+    }
+
+    /**
+     * Create an instance with the state of the {@code source} result.
+     *
+     * @param source Source to copy.
+     */
+    BaseRegressionResult(BaseRegressionResult source) {
+        n = source.n;
+        intercept = source.intercept;
+        coefficients = source.coefficients;
+        standardErrors = source.standardErrors;
+        rSquared = source.rSquared;
+        adjustedRSquared = source.adjustedRSquared;
+        errorVariance = source.errorVariance;
     }
 
     /** {@inheritDoc} */

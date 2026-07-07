@@ -148,12 +148,12 @@ final class QRDecomposition {
     }
 
     /**
-     * Compute the diagonal of \( (A^T A)^{-1} = (R^T R)^{-1} = R^{-1} R^{-T} \),
-     * used for the variance of the least squares parameter estimates.
+     * Compute \( (A^T A)^{-1} = (R^T R)^{-1} = R^{-1} R^{-T} \),
+     * used for the covariance of the least squares parameter estimates.
      *
-     * @return the diagonal of the unscaled parameter covariance matrix
+     * @return the unscaled parameter covariance matrix
      */
-    double[] covarianceDiagonal() {
+    double[][] covariance() {
         final int p = rDiag.length;
         // Invert the upper triangular matrix R by columns: solve R v = e_j
         final double[][] rInv = new double[p][p];
@@ -167,15 +167,48 @@ final class QRDecomposition {
                 rInv[k][j] = v / rDiag[k];
             }
         }
-        // Row sums of squares of R^-1
-        final double[] diag = new double[p];
+        // R^-1 R^-T, exploiting symmetry
+        final double[][] cov = new double[p][p];
         for (int i = 0; i < p; i++) {
-            double sum = 0;
             for (int j = i; j < p; j++) {
-                sum += rInv[i][j] * rInv[i][j];
+                double sum = 0;
+                for (int k = j; k < p; k++) {
+                    sum += rInv[i][k] * rInv[j][k];
+                }
+                cov[i][j] = sum;
+                cov[j][i] = sum;
             }
-            diag[i] = sum;
         }
-        return diag;
+        return cov;
+    }
+
+    /**
+     * Compute the leverage value \( h_i = a_i^T (A^T A)^{-1} a_i = \| R^{-T} a_i \|^2 \)
+     * for each row \( a_i \): the diagonal of the hat matrix.
+     *
+     * @param rows Rows of the matrix that was decomposed (the decomposition modifies the
+     * input in place, so this must be a copy taken before construction).
+     * @return the leverage values
+     */
+    double[] leverage(double[][] rows) {
+        final int p = rDiag.length;
+        final double[] h = new double[rows.length];
+        final double[] z = new double[p];
+        for (int i = 0; i < rows.length; i++) {
+            final double[] a = rows[i];
+            // Forward substitution: R^T z = a
+            double sumSq = 0;
+            for (int j = 0; j < p; j++) {
+                double v = a[j];
+                for (int k = 0; k < j; k++) {
+                    v -= qr[k][j] * z[k];
+                }
+                final double zj = v / rDiag[j];
+                z[j] = zj;
+                sumSq += zj * zj;
+            }
+            h[i] = sumSq;
+        }
+        return h;
     }
 }

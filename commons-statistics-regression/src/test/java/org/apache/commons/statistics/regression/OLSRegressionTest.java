@@ -17,6 +17,7 @@
 package org.apache.commons.statistics.regression;
 
 import java.util.SplittableRandom;
+import org.apache.commons.math3.stat.regression.GLSMultipleLinearRegression;
 import org.apache.commons.math3.stat.regression.OLSMultipleLinearRegression;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -225,6 +226,173 @@ class OLSRegressionTest {
         for (int i = 0; i < p.length; i++) {
             Assertions.assertTrue(p[i] >= 0 && p[i] <= 1, "range " + i);
             Assertions.assertEquals(significant[i], p[i] < 0.05, "significance " + i);
+        }
+    }
+
+    @Test
+    void testLeverageVsCommonsMath3() {
+        final double[][] x = longleyX();
+        final double[] y = longleyY();
+        final OLSMultipleLinearRegression reference = new OLSMultipleLinearRegression();
+        reference.newSampleData(y, x);
+        final double[][] hat = reference.calculateHat().getData();
+
+        final double[] leverage = OLSRegression.withDefaults().fit(x, y).getLeverage();
+        double sum = 0;
+        for (int i = 0; i < leverage.length; i++) {
+            Assertions.assertEquals(hat[i][i], leverage[i], 1e-8, "leverage " + i);
+            sum += leverage[i];
+        }
+        // The leverage values sum to the number of parameters
+        Assertions.assertEquals(7, sum, 1e-10);
+    }
+
+    @Test
+    void testCoefficientCovariance() {
+        final double[][] x = longleyX();
+        final double[] y = longleyY();
+        final OLSMultipleLinearRegression reference = new OLSMultipleLinearRegression();
+        reference.newSampleData(y, x);
+        // math3 returns the unscaled (X^T X)^-1
+        final double[][] unscaled = reference.estimateRegressionParametersVariance();
+        final double sigma2 = reference.estimateErrorVariance();
+
+        final OLSRegression.Result r = OLSRegression.withDefaults().fit(x, y);
+        final double[][] cov = r.getCoefficientCovariance();
+        final double[] se = r.getCoefficientStandardErrors();
+        for (int i = 0; i < cov.length; i++) {
+            // The diagonal holds the squared standard errors
+            Assertions.assertEquals(se[i] * se[i], cov[i][i], Math.abs(cov[i][i]) * 1e-12);
+            for (int j = 0; j < cov.length; j++) {
+                Assertions.assertEquals(cov[j][i], cov[i][j], "symmetry");
+                Assertions.assertEquals(unscaled[i][j] * sigma2, cov[i][j],
+                    Math.abs(cov[i][j]) * 1e-8, "covariance " + i + "," + j);
+            }
+        }
+    }
+
+    @Test
+    void testWeightedUnitWeights() {
+        final double[][] x = longleyX();
+        final double[] y = longleyY();
+        final double[] weights = new double[y.length];
+        java.util.Arrays.fill(weights, 1);
+        final OLSRegression.Result unweighted = OLSRegression.withDefaults().fit(x, y);
+        final OLSRegression.Result weighted = OLSRegression.withDefaults().fit(x, y, weights);
+        Assertions.assertArrayEquals(unweighted.getCoefficients(), weighted.getCoefficients());
+        Assertions.assertArrayEquals(unweighted.getCoefficientStandardErrors(),
+            weighted.getCoefficientStandardErrors());
+        Assertions.assertArrayEquals(unweighted.getResiduals(), weighted.getResiduals());
+        Assertions.assertArrayEquals(unweighted.getLeverage(), weighted.getLeverage());
+        Assertions.assertEquals(unweighted.getRSquared(), weighted.getRSquared());
+    }
+
+    @Test
+    void testWeightedScaleInvariance() {
+        // Multiplying all weights by a constant does not change the fit or its statistics
+        final double[][] x = longleyX();
+        final double[] y = longleyY();
+        final double[] weights = new double[y.length];
+        java.util.Arrays.fill(weights, 3.5);
+        final OLSRegression.Result unweighted = OLSRegression.withDefaults().fit(x, y);
+        final OLSRegression.Result weighted = OLSRegression.withDefaults().fit(x, y, weights);
+        assertRelativelyEquals(unweighted.getCoefficients(), weighted.getCoefficients(), 1e-10);
+        assertRelativelyEquals(unweighted.getCoefficientStandardErrors(),
+            weighted.getCoefficientStandardErrors(), 1e-10);
+        Assertions.assertEquals(unweighted.getRSquared(), weighted.getRSquared(), 1e-12);
+    }
+
+    @Test
+    void testWeightedReplication() {
+        // An integer weight m is equivalent to including the observation m times
+        // for the purpose of the parameter estimates
+        final SplittableRandom rng = new SplittableRandom(3);
+        final int n = 12;
+        final double[][] x = new double[n][2];
+        final double[] y = new double[n];
+        final double[] weights = new double[n];
+        for (int i = 0; i < n; i++) {
+            x[i][0] = rng.nextDouble() * 5;
+            x[i][1] = rng.nextDouble() * 2;
+            y[i] = 2 + 3 * x[i][0] - x[i][1] + rng.nextDouble();
+            weights[i] = 1 + (i % 3);
+        }
+        // Duplicate each observation according to its weight
+        final java.util.List<double[]> xDup = new java.util.ArrayList<>();
+        final java.util.List<Double> yDup = new java.util.ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            for (int m = 0; m < weights[i]; m++) {
+                xDup.add(x[i]);
+                yDup.add(y[i]);
+            }
+        }
+        final double[][] x2 = xDup.toArray(new double[0][]);
+        final double[] y2 = new double[yDup.size()];
+        for (int i = 0; i < y2.length; i++) {
+            y2[i] = yDup.get(i);
+        }
+        final double[] weightedBeta =
+            OLSRegression.withDefaults().fit(x, y, weights).getCoefficients();
+        final double[] duplicatedBeta =
+            OLSRegression.withDefaults().fit(x2, y2).getCoefficients();
+        assertRelativelyEquals(duplicatedBeta, weightedBeta, 1e-10);
+    }
+
+    @Test
+    void testWeightedVsCommonsMath3GLS() {
+        // WLS is GLS with a diagonal error covariance of 1/w
+        final SplittableRandom rng = new SplittableRandom(7);
+        final int n = 25;
+        final int k = 3;
+        final double[][] x = new double[n][k];
+        final double[] y = new double[n];
+        final double[] weights = new double[n];
+        final double[][] omega = new double[n][n];
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < k; j++) {
+                x[i][j] = rng.nextDouble() * 10;
+            }
+            y[i] = 5 + 2 * x[i][0] - 3 * x[i][1] + 0.5 * x[i][2] + rng.nextDouble() * 4;
+            weights[i] = 0.5 + rng.nextDouble() * 2.5;
+            omega[i][i] = 1 / weights[i];
+        }
+        final GLSMultipleLinearRegression reference = new GLSMultipleLinearRegression();
+        reference.newSampleData(y, x, omega);
+
+        final OLSRegression.Result r = OLSRegression.withDefaults().fit(x, y, weights);
+        assertRelativelyEquals(reference.estimateRegressionParameters(),
+            r.getCoefficients(), 1e-8);
+        assertRelativelyEquals(reference.estimateRegressionParametersStandardErrors(),
+            r.getCoefficientStandardErrors(), 1e-8);
+        Assertions.assertEquals(reference.estimateErrorVariance(), r.getErrorVariance(),
+            reference.estimateErrorVariance() * 1e-8);
+        // The leverage values sum to the number of parameters in the weighted fit
+        double sum = 0;
+        for (final double h : r.getLeverage()) {
+            sum += h;
+        }
+        Assertions.assertEquals(k + 1, sum, 1e-10);
+    }
+
+    @Test
+    void testInvalidWeights() {
+        final OLSRegression ols = OLSRegression.withDefaults();
+        final double[][] x = new double[6][2];
+        final double[] y = new double[6];
+        final SplittableRandom rng = new SplittableRandom(5);
+        for (int i = 0; i < x.length; i++) {
+            x[i][0] = rng.nextDouble();
+            x[i][1] = rng.nextDouble();
+            y[i] = rng.nextDouble();
+        }
+        // Mismatched length
+        Assertions.assertThrows(IllegalArgumentException.class,
+            () -> ols.fit(x, y, new double[5]));
+        // Non-positive and non-finite weights
+        for (final double bad : new double[] {0, -1, Double.NaN, Double.POSITIVE_INFINITY}) {
+            final double[] weights = {1, 1, 1, bad, 1, 1};
+            Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ols.fit(x, y, weights), "weight " + bad);
         }
     }
 

@@ -190,28 +190,10 @@ public final class SimpleLinearRegression {
         final double slopeError = Math.sqrt(errorVariance / sxx);
         final double interceptError =
             Math.sqrt(errorVariance * (1.0 / n + meanX * meanX / sxx));
-        return new Result(n,
+        return new BaseRegressionResult(n,
+            true,
             new double[] {intercept, slope},
             new double[] {interceptError, slopeError},
             sse, syy);
-    }
-
-    /**
-     * Result of a {@link SimpleLinearRegression} fit.
-     */
-    private static final class Result extends BaseRegressionResult {
-        /**
-         * Create an instance.
-         *
-         * @param n Number of observations.
-         * @param coefficients Parameter estimates.
-         * @param standardErrors Standard errors of the parameter estimates.
-         * @param sse Sum of squared errors.
-         * @param sst Total sum of squares about the mean.
-         */
-        Result(long n, double[] coefficients, double[] standardErrors,
-               double sse, double sst) {
-            super(n, true, coefficients, standardErrors, sse, sst);
-        }
     }
 }
