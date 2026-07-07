@@ -56,6 +56,11 @@
         <artifactId>commons-statistics-ranking</artifactId>
         <version>${version}</version>
       </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-statistics-regression</artifactId>
+        <version>${version}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 </project>

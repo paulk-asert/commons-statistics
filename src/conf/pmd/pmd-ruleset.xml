@@ -73,7 +73,9 @@
     <properties>
       <!-- Array is generated internally in this case. -->
       <property name="violationSuppressXPath" value="./ancestor-or-self::ClassDeclaration[@SimpleName='DistributionException'
-        or @SimpleName='ArrayRealSquareMatrix']"/>
+        or @SimpleName='ArrayRealSquareMatrix'
+        or @SimpleName='BaseRegressionResult' or @SimpleName='OLSRegression'
+        or @SimpleName='QRDecomposition']"/>
     </properties>
   </rule>
   <rule ref="category/java/bestpractices.xml/AvoidReassigningLoopVariables">
